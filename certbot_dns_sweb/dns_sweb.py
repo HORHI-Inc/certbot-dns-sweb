@@ -55,6 +55,21 @@ class Authenticator(dns_common.DNSAuthenticator):
             return validation_name[: -(len(domain) + 1)] or "@"
         return validation_name
 
+    def _get_root_domain(self, domain: str) -> str:
+        # SpaceWeb's API only recognizes domains actually registered in the
+        # account (e.g. "hoshv.org"), not arbitrary DNS labels below it.
+        # A cert identifier like "znas-loc.hoshv.org" (for a wildcard
+        # -d '*.znas-loc.hoshv.org') is a subdomain, not a registrable
+        # domain, and the API rejects it with "Нет доступа к домену". If
+        # dns_sweb_root_domain is configured, use it as the API "domain" and
+        # compute the subdomain relative to it instead. Optional and
+        # backward-compatible: unset behaves exactly as upstream.
+        assert self.credentials is not None  # mypy hint
+        root = self.credentials.conf("root_domain")
+        if root and (domain == root or domain.endswith("." + root)):
+            return root
+        return domain
+
     def _i_am_human(self, tm: float = 5.0, rnd: float = 1.15) -> None:
         t = tm
         n = int(rnd * 100)
@@ -65,6 +80,7 @@ class Authenticator(dns_common.DNSAuthenticator):
         time.sleep(t)
 
     def _drop_old_txt(self, domain: str, validation_name: str) -> int:
+        domain = self._get_root_domain(domain)
         subdomain = self._get_subdomain(domain, validation_name)
         removed_count = 0
         while True:
@@ -100,6 +116,7 @@ class Authenticator(dns_common.DNSAuthenticator):
         assert self.credentials is not None  # mypy hint
 
         self._my_tokens.append(validation)
+        domain = self._get_root_domain(domain)
 
         if self.credentials.conf("drop_old_txt") == "1":
             self._drop_old_txt(domain, validation_name)
@@ -114,6 +131,7 @@ class Authenticator(dns_common.DNSAuthenticator):
         )
 
     def _cleanup(self, domain: str, validation_name: str, validation: str) -> None:
+        domain = self._get_root_domain(domain)
         subdomain = self._get_subdomain(domain, validation_name)
 
         self._i_am_human()
